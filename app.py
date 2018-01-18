@@ -1,7 +1,7 @@
 from flask import Flask, render_template, flash, request, redirect, url_for, session, logging
 # from data import Posts
 from flask_mysqldb import MySQL
-from wtforms import Form, StringField, TextAreaField, PasswordField, validators
+from wtforms import Form, StringField, TextAreaField, PasswordField, validators, DateField
 from passlib.hash import sha256_crypt
 from functools import wraps
 import redis
@@ -139,13 +139,14 @@ def login():
                 todays_date = user_dob.today()
                 print(user_dob,"   ", todays_date)
                 if(user_dob.month == todays_date.month and user_dob.day == todays_date.day):
-                    # #for email
-                    # server = smtplib.SMTP('smtp.gmail.com',587)
-                    # server.starttls()
-                    # server.login("@gmail.com","pass")
-                    # msg = "hi bro"
-                    # server.sendmail("@gmail.com","@iiitd.ac.in",msg)
-                    # server.quit()
+                    #for email
+                    server = smtplib.SMTP('smtp.gmail.com',587)
+                    server.starttls()
+                    server.login("@gmail.com","pass")
+                    msg = "hi bro"
+                    server.sendmail("@gmail.com","@iiitd.ac.in",msg)
+                    server.quit()
+                    pass
 
                 flash('You are now logged in', 'success')
                 return redirect(url_for('dashboard'))
@@ -189,7 +190,7 @@ def dashboard():
         posts = cur.fetchall()
 
         r_server.set('cached_posts',posts)
-        r_server.expire("cached_posts",10)
+        r_server.expire("cached_posts",100)
         print("posts came from db")
 
 
@@ -254,7 +255,7 @@ def edit_post(id):
         # Get form
         form = PostForm(request.form)
 
-        # Populate article form fields
+        # Populate post form fields
         form.title.data = post['title']
         form.body.data = post['body']
 
@@ -304,9 +305,11 @@ def delete_post(id):
 
 
 class DobForm(Form):
-    title = StringField('Title', [validators.Length(min=9, max=20)])
+    # dateofbirth = StringField('Dob', [validators.Length(min=9, max=20)])
+    dateofbirth = DateField('Dob', format='%Y-%m-%d')
 
-@app.route('/edit_bday')
+
+@app.route('/edit_bday', methods=['GET', 'POST'])
 @is_logged_in
 def edit_bday():
     # Create cursor
@@ -315,9 +318,31 @@ def edit_bday():
     # Execute
     result = cur.execute("select dob from users where username = %s", [session['username']])
     if(result > 0):
-        flash('Post Deleted', 'success')
+        dob = cur.fetchone()
+        form = DobForm(request.form)
+        form.dateofbirth.data = dob['dob']
+        flash('you can edit your dob', 'success')
+
+        if request.method == 'POST' and form.validate():
+            dateofb = request.form['dateofbirth']
+            print(dateofb)
+
+            # Create Cursor
+            cur = mysql.connection.cursor()
+            app.logger.info(dateofb)
+            # Execute
+            result = cur.execute ("UPDATE users SET dob=%s WHERE username=%s",(dateofb,session['username']))
+
+            # Commit to DB
+            mysql.connection.commit()
+
+            #Close connection
+            cur.close()
+            flash('dob updated successfully','success')
+
+            return redirect(url_for('dashboard'))
     else:
-        flash('You cannot delete this post','danger')
+        flash('You cannot edit someone else dob','danger')
 
     # Commit to DB
     mysql.connection.commit()
@@ -325,7 +350,7 @@ def edit_bday():
     #Close connection
     cur.close()
 
-    return render_template('edit_bday.html')
+    return render_template('edit_bday.html', form=form)
     # return "feature yet to be implemented"
 
 if __name__ == '__main__':
