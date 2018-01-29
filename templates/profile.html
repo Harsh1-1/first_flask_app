@@ -1,0 +1,9 @@
+{% extends 'layout.html' %}
+
+{% block body %}
+  <h1>{{profile.username}} 's profile</h1>
+  <form action="{{url_for('send_request', username=profile.username)}}" method="post">
+    <input type="hidden" name="_method" value="SEND REQUEST">
+    <input type="submit" value="Send Request" class="btn btn-success">
+  </form>
+{% endblock %}

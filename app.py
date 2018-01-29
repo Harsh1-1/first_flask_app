@@ -136,17 +136,17 @@ def login():
                 app.logger.info('Password matched')
 
                 user_dob = data['dob']
-                todays_date = user_dob.today()
-                print(user_dob,"   ", todays_date)
-                if(user_dob.month == todays_date.month and user_dob.day == todays_date.day):
-                    #for email
-                    server = smtplib.SMTP('smtp.gmail.com',587)
-                    server.starttls()
-                    server.login("@gmail.com","pass")
-                    msg = "hi bro"
-                    server.sendmail("@gmail.com","@iiitd.ac.in",msg)
-                    server.quit()
-                    pass
+                if user_dob is not None:
+                    todays_date = user_dob.today()
+                    # print(user_dob,"   ", todays_date)
+                    if(user_dob.month == todays_date.month and user_dob.day == todays_date.day):
+                        #for email
+                        server = smtplib.SMTP('smtp.gmail.com',587)
+                        server.starttls()
+                        server.login("whypeoplehackme@gmail.com","testaccountforme")
+                        msg = "happy B'day bro"
+                        server.sendmail("whypeoplehackme@gmail.com",data['email'],msg) #just put data['email'] in 2nd argument for sending wish to the user
+                        server.quit()
 
                 flash('You are now logged in', 'success')
                 return redirect(url_for('dashboard'))
@@ -178,6 +178,7 @@ def dashboard():
     v = r_server.get('cached_posts')
     if v:
         posts = eval(v)
+        # print(posts)
         result = len(posts)
         print("posts came from redis")
     else:
@@ -185,17 +186,45 @@ def dashboard():
         cur = mysql.connection.cursor()
 
         # Get articles
-        result = cur.execute("SELECT * FROM posts")
+        # result = cur.execute("SELECT * FROM posts")
+        result1 = cur.execute("select id from users where username = %s", [session['username']]);
+        requested_id = cur.fetchone()['id']
+
+        query = "select * from posts inner join (select username from (select t2.follower_id from (select following_id from friends where follower_id="  + str(requested_id) + ") as t1 inner join friends as t2 on t2.follower_id=t1.following_id union select id from users where username='" + session['username'] + "') as t3 inner join users on users.id=t3.follower_id) as t4 on posts.author = t4.username";
+
+        # print(query)
+
+        # print(query)
+        result = cur.execute(query)
 
         posts = cur.fetchall()
 
+        # print(posts)
         r_server.set('cached_posts',posts)
-        r_server.expire("cached_posts",100)
+        r_server.expire("cached_posts",5)
         print("posts came from db")
 
+        cur.close()
+
+
+    cur = mysql.connection.cursor()
+
+    result1 = cur.execute("select id from users where username = %s", [session['username']]);
+    requested_id = cur.fetchone()['id']
+
+    #need to perfrom a check first whether that user exist first or not
+    # result1 = cur.execute("select use from users where username = %s", [username]);
+    # requester_id = cur.fetchone()['id']
+
+    query = "select username from users inner join (select t1.follower_id from (SELECT follower_id from friends where following_id = " + str(requested_id) + ") as t1"\
+    + " left join" + " (select following_id from friends where follower_id = " + str(requested_id) + ") as t2 on t1.follower_id = t2.following_id where t2.following_id is NULL) as t3 on t3.follower_id = users.id"
+    # print(query)
+    result1 = cur.execute(query)
+
+    requests = cur.fetchall()
 
     if result > 0:
-        return render_template('dashboard.html', posts=posts)
+        return render_template('dashboard.html', posts=posts, requests = requests)
     else:
         msg = 'No Posts Found'
         return render_template('dashboard.html', msg=msg)
@@ -325,7 +354,7 @@ def edit_bday():
 
         if request.method == 'POST' and form.validate():
             dateofb = request.form['dateofbirth']
-            print(dateofb)
+            # print(dateofb)
 
             # Create Cursor
             cur = mysql.connection.cursor()
@@ -352,6 +381,166 @@ def edit_bday():
 
     return render_template('edit_bday.html', form=form)
     # return "feature yet to be implemented"
+
+@app.route('/profile/<username>', methods=['GET','POST'])
+@is_logged_in
+def profile(username):
+    #create cursor
+    cur = mysql.connection.cursor()
+
+    # execute
+    result = cur.execute("Select username from users where username=%s", [username])
+    if result <= 0:
+        flash("That user does not exist","danger")
+        return redirect(url_for('dashboard'))
+    else:
+        # return "Welcome" + username
+        profile = cur.fetchone()
+        return render_template('profile.html', profile = profile )
+
+    mysql.connection.commit()
+    cur.close()
+
+def is_already_friend(requester_id,requested_id,cur):
+    result1 = cur.execute('select * from friends where follower_id=' + str(requester_id) + " and following_id=" + str(requested_id))
+    print(result1)
+    # print(cur.fetchone())
+    if(result1 >0):
+        result2 = cur.execute('select * from friends where follower_id=' + str(requested_id) + " and following_id=" + str(requester_id))
+        print(result2)
+        # print(cur.fetchone())
+        if(result2 >0):
+            print("here")
+            return 1 # 1 = already a friend
+        return 2 # 2 = you already sent friend request
+    else:
+        return 0 # not already a friend
+
+def already_got_request(requester_id,requested_id,cur):
+    result1 = cur.execute('select * from friends where follower_id=' + str(requested_id) + " and following_id=" + str(requester_id))
+    if(result1 >0):
+        return 1 # already got friend request from person,  but you did not accept
+    else:
+        return 0 # did not already get friend request
+
+
+
+# Sending request
+@app.route('/send_request/<string:username>', methods=['POST'])
+@is_logged_in
+def send_request(username):
+    # Create cursor
+    cur = mysql.connection.cursor()
+
+    result = cur.execute("select id from users where username = %s", [session['username']]);
+    requester_id = cur.fetchone()['id']
+    #need to perfrom a check first whether that user exist first or not
+    result = cur.execute("select id from users where username = %s", [username]);
+    requested_id = cur.fetchone()['id']
+
+    if(requester_id == requested_id):
+        flash('you cannot send friend request to yourself','danger')
+        mysql.connection.commit()
+        cur.close()
+        return redirect(url_for('dashboard'))
+
+    elif( is_already_friend(requester_id,requested_id,cur) == 1 ):
+        flash('you two are already friends','success')
+        mysql.connection.commit()
+        cur.close()
+        return redirect(url_for('dashboard'))
+    elif( is_already_friend(requester_id,requested_id,cur) == 2 ):
+        flash('friend request already sent', 'danger')
+        mysql.connection.commit()
+        cur.close()
+        return redirect(url_for('dashboard'))
+    else:
+        if( already_got_request(requester_id,requested_id,cur)==1 ):
+            flash('Already got friend request from person, but you did not accept', 'danger')
+            mysql.connection.commit()
+            cur.close()
+            return redirect(url_for('dashboard'))
+
+
+    # print(requester_id, "  :  ", requested_id)
+
+    # Execute
+    result = cur.execute("insert into friends (follower_id, following_id) values (" + str(requester_id) + "," + str(requested_id) + ")" )
+    if(result > 0):
+        flash('friend request sent successfully', 'success')
+    else:
+        flash('You cannot send request to this user','danger')
+
+    # Commit to DB
+    mysql.connection.commit()
+
+    #Close connection
+    cur.close()
+
+    return redirect(url_for('dashboard'))
+
+
+# Accept Request
+@app.route('/accept_request/<string:username>', methods=['POST'])
+@is_logged_in
+def accept_request(username):
+    # Create cursor
+    cur = mysql.connection.cursor()
+
+    result = cur.execute("select id from users where username = %s", [session['username']]);
+    requested_id = cur.fetchone()['id']
+    #need to perfrom a check first whether that user exist first or not
+    result = cur.execute("select id from users where username = %s", [username]);
+    requester_id = cur.fetchone()['id']
+
+    # Execute
+    result = cur.execute( "insert into friends (follower_id, following_id) values (" + str(requested_id) + "," + str(requester_id) + ")" )
+    if(result > 0):
+        flash('Request Accepted', 'success')
+    else:
+        flash('You cannot accept this request','danger')
+
+    # Commit to DB
+    mysql.connection.commit()
+
+    #Close connection
+    cur.close()
+
+
+    return redirect(url_for('dashboard'))
+
+
+# Reject Request
+@app.route('/reject_request/<string:username>', methods=['POST'])
+@is_logged_in
+def reject_request(username):
+
+    # Create cursor
+    cur = mysql.connection.cursor()
+
+    result = cur.execute("select id from users where username = %s", [session['username']]);
+    requested_id = cur.fetchone()['id']
+    #need to perfrom a check first whether that user exist first or not
+    result = cur.execute("select id from users where username = %s", [username]);
+    requester_id = cur.fetchone()['id']
+
+    # Execute
+    result = cur.execute("DELETE FROM friends WHERE follower_id = " + str(requester_id) + " and following_id = " + str(requested_id))
+    if(result > 0):
+        flash('Rejected Request', 'success')
+    else:
+        flash('You cannot reject this request :P','danger')
+
+    # Commit to DB
+    mysql.connection.commit()
+
+    #Close connection
+    cur.close()
+
+
+    return redirect(url_for('dashboard'))
+
+
 
 if __name__ == '__main__':
     app.run(debug=True)

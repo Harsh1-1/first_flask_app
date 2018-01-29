@@ -4,6 +4,31 @@
   <h1>Dashboard <small> Welcome {{session.username}}</small></h1>
   <a class="btn btn-success" href="/add_post"> Add Post</a>
   <a class="btn btn-success" href="/edit_bday"> Edit Bday </a>
+
+  <hr>
+  <table class="table">
+    {% for request in requests %}
+      <tr>
+        <td>{{request.username}}</td>
+
+        <td>
+          <form action="{{url_for('accept_request', username=request.username)}}" method="post">
+            <input type="hidden" name="_method" value="ACCEPT">
+            <input type="submit" value="Accept" class="btn btn-success">
+          </form>
+        </td>
+        <td>
+          <form action="{{url_for('reject_request', username=request.username)}}" method="post">
+            <input type="hidden" name="_method" value="REJECT">
+            <input type="submit" value="Reject" class="btn btn-danger">
+          </form>
+        </td>
+
+      </tr>
+    {% endfor %}
+  </table>
+
+
   <hr>
   <table class="table table-striped">
     <tr>
